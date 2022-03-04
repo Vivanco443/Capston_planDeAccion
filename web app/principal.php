@@ -411,7 +411,6 @@
 
 
         function update_values() {
-            console.log("Aqui si llega");
             $("#prin_display").html("¡Incidente detectado!");
             $("#sec_display").html("Evidencia disponible");
             console.log("cambio de nombre ejecutado");
@@ -423,7 +422,6 @@
             // ej: "Crushed!"
             if (topic == "vehicle_state") {
                 var valor = message.toString(); // message.toString();
-                console.log(valor);
                 if (valor == "Crushed!") update_values();
             }
         }
