@@ -1,12 +1,8 @@
 /*
-  Rui Santos
-  Complete project details at https://RandomNerdTutorials.com/esp32-cam-post-image-photo-server/
+  Especia agradecimiento a Rui Santos de Random Nerd Tutorials
+  que con su proyecto "ESP32-CAM Post Images to Local or Cloud Server using PHP (Photo Manager)"
+  pudimos llevar acabo este proyecto
 
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files.
-
-  The above copyright notice and this permission notice shall be included in all
-  copies or substantial portions of the Software.
 */
 
 #include <Arduino.h>
@@ -14,26 +10,26 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "esp_camera.h"
+// Credenciales ssid (WiFi)
+const char *ssid = "Heuristicas";   // **Totalplay-73A0-_2.4Gnormal   ||    Cuca's_chan
+const char *password = "optimizacion";   // **Naylita2021
 
-const char *ssid = "Heuristicas";   // Totalplay-73A0-_2.4Gnormal   ||    Cuca's_chan
-const char *password = "optimizacion";   // Naylita2021
+String serverName = "realdtc.ga"; // REEMPLAZAR CON EL IP DEL SERVIDOR   148.206.74.17
+// String serverName = "example.com";   // O CON EL NOMBRE DEL DOMINIO
 
-String serverName = "realdtc.ga"; // SERVER NAME   148.206.74.17
-// String serverName = "example.com";   // OR REPLACE WITH YOUR DOMAIN NAME
-
-String serverPath = "/upload.php"; // The default serverPath /upload.php
+String serverPath = "/upload.php"; // EL DIRECTORIO POR DEFAULT /upload.php
 
 const int serverPort = 80;
 
 // button pin
-const int buttonPin = 16;
-int buttonState = HIGH;
-int lastButtonState = LOW;          // the previous reading from the input pin
-unsigned long lastDebounceTime = 0; // the last time the output pin was toggled
-unsigned long debounceDelay = 50;   // the debounce time; increase if the output flickers
+const int buttonPin = 16;       // GPIO16
+int buttonState = HIGH;         
+int lastButtonState = LOW;          // ultima lectura del input pin
+unsigned long lastDebounceTime = 0; // ultima vez que el pin se activó
+unsigned long debounceDelay = 50;   // tiempo para evitar ruido; si la salida parpadea
 
-WiFiClient client;
-
+WiFiClient client;    // Se crea una instancia del cliente WiFi
+// Constantes para configutacion de la cámara
 // CAMERA_MODEL_AI_THINKER
 #define PWDN_GPIO_NUM 32
 #define RESET_GPIO_NUM -1
@@ -52,73 +48,59 @@ WiFiClient client;
 #define HREF_GPIO_NUM 23
 #define PCLK_GPIO_NUM 22
 
-const int timerInterval = 30000;  // time between each HTTP POST image
-unsigned long previousMillis = 0; // last time image was sent
+const int timerInterval = 30000;  // tiempo minimo entre cada post HTTP
+unsigned long previousMillis = 0; // ultima vez que se envió
 camera_config_t config;
 
 int picknum = 5;  // Numero de fotos que se envían
 
+// Solo necesario si se programa sin Arduino IDE
 //####################################
 //##### Declaracion de funciones #####
 //####################################
 String sendPhoto();
 void configInitCamera();
+void setupWiFi();
 
 void setup()
 {
-  pinMode(buttonPin, INPUT);
+  pinMode(buttonPin, INPUT);    // Declaración pin de entrada
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
-  Serial.begin(115200);
-
-  WiFi.mode(WIFI_STA);
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println();
-  Serial.print("ESP32-CAM IP Address: ");
-  Serial.println(WiFi.localIP());
-  // Se prepara la cámara
-  configInitCamera();
-  // Se manda la foto
-  //sendPhoto();
+  Serial.begin(115200);   // Declaración velocidad de puerto serial
+  setupWiFi();    // Se inicia WiFi
+  configInitCamera();   // Se inicia cámara
 }
 
 void loop()
 {
-  int reading = digitalRead(buttonPin); // Leemos la entrada
-  if (reading != lastButtonState)
+  int reading = digitalRead(buttonPin); // Se lee la entrada
+  if (reading != lastButtonState)   
   {
-    // reset the debouncing timer
+    // resetea el debouncing timer
     lastDebounceTime = millis();
   }
 
-  if ((millis() - lastDebounceTime) > debounceDelay)
+  if ((millis() - lastDebounceTime) > debounceDelay)    //  Para evitar el ruido
   {
     if (reading != buttonState) // si el estado del boton ha cambiado:
     {
       buttonState = reading;
-      if (buttonState == LOW)
+      if (buttonState == LOW)   //  se activó el sensor
       {
-        unsigned long currentMillis = millis();
+        unsigned long currentMillis = millis();   //  Se toma el tiempo
         if (currentMillis - previousMillis >= timerInterval)    // Tiempo minimo para volver a enviar
         {
           Serial.println("¡¡Crushed!!");
-          for(int i=0; i < picknum; i++){
-            sendPhoto();
+          for(int i=0; i < picknum; i++){     //  picknum = numero de fotos
+            sendPhoto();    // Toma y envía foto
             delay(50);
           }
-          previousMillis = currentMillis;
+          previousMillis = currentMillis;   // Actualiza tiempo
         }
       }
     }
   }
-  lastButtonState = reading;
+  lastButtonState = reading;    // Actualiza estado 
 }
 
 String sendPhoto()
@@ -128,7 +110,7 @@ String sendPhoto()
   // Las siguientes dos líneas toman la foto
   camera_fb_t *fb = NULL;
   fb = esp_camera_fb_get();
-  if (!fb)
+  if (!fb)    // Si no se toma
   {
     Serial.println("Camera capture failed");
     delay(1000);
@@ -137,7 +119,7 @@ String sendPhoto()
 
   Serial.println("Connecting to server: " + serverName);
 
-  if (client.connect(serverName.c_str(), serverPort))
+  if (client.connect(serverName.c_str(), serverPort))   // Se conecta al servidor
   {
     Serial.println("Connection successful!");     // Esto que onda?? vvv
     String head = "--RandomNerdTutorials\r\nContent-Disposition: form-data; name=\"imageFile\"; filename=\"esp32-cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
@@ -221,6 +203,7 @@ String sendPhoto()
 
 void configInitCamera()
 {
+  // COnfiguración necesaria para una buena foto
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
   config.pin_d0 = Y2_GPIO_NUM;
@@ -246,13 +229,13 @@ void configInitCamera()
   if (psramFound())
   {
     config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 10; // 0-63 lower number means higher quality
+    config.jpeg_quality = 10; // 0-63 menor numero = mayor calidad
     config.fb_count = 2;
   }
   else
   {
     config.frame_size = FRAMESIZE_CIF;
-    config.jpeg_quality = 12; // 0-63 lower number means higher quality
+    config.jpeg_quality = 12; // 0-63 menor numero = mayor calidad
     config.fb_count = 1;
   }
 
@@ -261,7 +244,24 @@ void configInitCamera()
   if (err != ESP_OK)
   {
     Serial.printf("Camera init failed with error 0x%x", err);
-    delay(1000);   // Checa esta línea
-    ESP.restart(); // Checa esta linea (no está en el otro código)
+    delay(1000);   
+    ESP.restart(); 
   }
+}
+
+void setupWiFi()
+{
+  WiFi.mode(WIFI_STA);    // Modo de WiFI
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);   // Establece conección a internet
+  while (WiFi.status() != WL_CONNECTED)   // Mientras se conecta
+  {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println();
+  Serial.print("ESP32-CAM IP Address: ");
+  Serial.println(WiFi.localIP());
 }
