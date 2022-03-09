@@ -1,10 +1,5 @@
-/*
-  Especia agradecimiento a Rui Santos de Random Nerd Tutorials
-  que con su proyecto "ESP32-CAM Post Images to Local or Cloud Server using PHP (Photo Manager)"
-  pudimos llevar acabo este proyecto
-
-*/
-/*  Envío de evidencia fotográfica tras una señal de impacto por medio de IoT
+/*  
+ *  Envío de evidencia fotográfica tras una señal de impacto por medio de IoT
  *  Por: Israel Santiafo / Enrique Vivanco
  *  Fecha: 8 de marzo de 2022
  *  
@@ -18,6 +13,9 @@
  *  Vcc   --------------  5V
  *  GND    -------------- GND
  *  
+ *  Especia agradecimiento a Rui Santos de Random Nerd Tutorials que con su proyecto
+ *  "ESP32-CAM Post Images to Local or Cloud Server using PHP (Photo Manager)"
+ *  pudimos llevar acabo este proyecto
  */
 
 #include <Arduino.h>
@@ -25,26 +23,35 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "esp_camera.h"
+#include <PubSubClient.h>
 // Credenciales ssid (WiFi)
-const char *ssid = "Heuristicas";   // **Totalplay-73A0-_2.4Gnormal   ||    Cuca's_chan
-const char *password = "optimizacion";   // **Naylita2021
+const char *ssid = "Cuca's_chan";   // Cuca's_chan
+const char *password = "Naylita2021";   //  Naylita2021
 
-String serverName = "realdtc.ga"; // REEMPLAZAR CON EL IP DEL SERVIDOR   148.206.74.17
-// String serverName = "example.com";   // O CON EL NOMBRE DEL DOMINIO
+String serverName = "148.206.74.17"; // REEMPLAZAR CON EL IP DEL SERVIDOR // 148.206.74.17
+// String serverName = "example.com";   // O REMPLAZALO CON EL NOMBRE DE TU DOMINIO
 
-String serverPath = "/upload.php"; // EL DIRECTORIO POR DEFAULT /upload.php
+String serverPath = "/webapp/upload.php";  // EL DIRECTORIO POR DEFECTO DEBERIA SER upload.php
 
-const int serverPort = 80;
+const int serverPort = 80; // El puerto a conectarse
 
-// button pin
-const int buttonPin = 16;       // GPIO16
-int buttonState = HIGH;         
-int lastButtonState = LOW;          // ultima lectura del input pin
-unsigned long lastDebounceTime = 0; // ultima vez que el pin se activó
-unsigned long debounceDelay = 50;   // tiempo para evitar ruido; si la salida parpadea
+//  Variables MQTT
+const char *mqtt_server = "realdtc.ga";  //  148.206.74.17
+const int mqtt_port = 1883;        // ???
+const char *mqtt_user = "web_client"; // Credenciales MQTT
+const char *mqtt_pass = "121212";
+char msg[25]; // Este char se usa para enviar el mensaje
 
-WiFiClient client;    // Se crea una instancia del cliente WiFi
-// Constantes para configutacion de la cámara
+const int sensorPin = 16; // button pin
+int sensorState = HIGH;
+int lastSensorState = LOW;          // the previous reading from the input pin
+unsigned long lastDebounceTime = 0; // the last time the output pin was toggled
+unsigned long debounceDelay = 50;   // the debounce time; increase if the output flickers
+
+WiFiClient client;
+PubSubClient mqttclient(client);
+
+// Serie de constantes para que lea la cámara el ESP
 // CAMERA_MODEL_AI_THINKER
 #define PWDN_GPIO_NUM 32
 #define RESET_GPIO_NUM -1
@@ -63,59 +70,70 @@ WiFiClient client;    // Se crea una instancia del cliente WiFi
 #define HREF_GPIO_NUM 23
 #define PCLK_GPIO_NUM 22
 
-const int timerInterval = 30000;  // tiempo minimo entre cada post HTTP
-unsigned long previousMillis = 0; // ultima vez que se envió
+const int timerInterval = 3000;   // tiempo minimo entre cada imagen
+unsigned long previousMillis = 0; // ultima vez de imagen enviada
 camera_config_t config;
 
-int picknum = 5;  // Numero de fotos que se envían
+int picknum = 5; // Numero de fotos que se envían
 
-// Solo necesario si se programa sin Arduino IDE
-//####################################
-//##### Declaracion de funciones #####
-//####################################
+//************************************
+//***** Declaracion de funciones *****    No se hace en Arduino IDE
+//************************************
 String sendPhoto();
 void configInitCamera();
-void setupWiFi();
+void alertaMqtt();
+void reconnect();
+void setup_wifi();
 
 void setup()
 {
-  pinMode(buttonPin, INPUT);    // Declaración pin de entrada
+  pinMode(sensorPin, INPUT); // seteamos modo de lectura al pin
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
-  Serial.begin(115200);   // Declaración velocidad de puerto serial
-  setupWiFi();    // Se inicia WiFi
-  configInitCamera();   // Se inicia cámara
+  Serial.begin(115200);
+
+  setup_wifi(); //  Iniciamos conexión wifi
+  mqttclient.setServer(mqtt_server, mqtt_port);   // Establece servidor MQTT
+  configInitCamera(); // Se inicia la cámara
 }
 
 void loop()
 {
-  int reading = digitalRead(buttonPin); // Se lee la entrada
-  if (reading != lastButtonState)   
+  if (!mqttclient.connected())   //  Checa conexion mqtt
   {
-    // resetea el debouncing timer
+    reconnect();    // Llama función 
+  }
+  int reading = digitalRead(sensorPin); // Lee el sensor
+  // Este if evita la activación por ruido
+  if (reading != lastSensorState)   // Si se activó el sensor
+  {
+    // reinicia tiempo de debounce
     lastDebounceTime = millis();
   }
 
-  if ((millis() - lastDebounceTime) > debounceDelay)    //  Para evitar el ruido
+  if ((millis() - lastDebounceTime) > debounceDelay)
   {
-    if (reading != buttonState) // si el estado del boton ha cambiado:
+    if (reading != sensorState) // si el sensor ha cambiado
     {
-      buttonState = reading;
-      if (buttonState == LOW)   //  se activó el sensor
+      sensorState = reading;
+      if (sensorState == LOW)   // Si está activado
       {
-        unsigned long currentMillis = millis();   //  Se toma el tiempo
-        if (currentMillis - previousMillis >= timerInterval)    // Tiempo minimo para volver a enviar
+        unsigned long currentMillis = millis();
+        if (currentMillis - previousMillis >= timerInterval)
         {
           Serial.println("¡¡Crushed!!");
-          for(int i=0; i < picknum; i++){     //  picknum = numero de fotos
-            sendPhoto();    // Toma y envía foto
+          for (int i = 0; i < picknum; i++)   // Para enviar "picknum" fotos
+          {
+            if (i == 0)
+              alertaMqtt();   // Solo una vez envia la alerta
+            sendPhoto();    // Llama la función
             delay(50);
           }
-          previousMillis = currentMillis;   // Actualiza tiempo
+          previousMillis = currentMillis;     // Setea valor
         }
       }
     }
   }
-  lastButtonState = reading;    // Actualiza estado 
+  lastSensorState = reading;  // Setea valor
 }
 
 String sendPhoto()
@@ -124,8 +142,8 @@ String sendPhoto()
   String getBody;
   // Las siguientes dos líneas toman la foto
   camera_fb_t *fb = NULL;
-  fb = esp_camera_fb_get();
-  if (!fb)    // Si no se toma
+  fb = esp_camera_fb_get();   
+  if (!fb)    // Si no se tomó
   {
     Serial.println("Camera capture failed");
     delay(1000);
@@ -134,9 +152,9 @@ String sendPhoto()
 
   Serial.println("Connecting to server: " + serverName);
 
-  if (client.connect(serverName.c_str(), serverPort))   // Se conecta al servidor
+  if (client.connect(serverName.c_str(), serverPort))   // Se conecta 
   {
-    Serial.println("Connection successful!");     // Esto que onda?? vvv
+    Serial.println("Connection successful!"); // 
     String head = "--RandomNerdTutorials\r\nContent-Disposition: form-data; name=\"imageFile\"; filename=\"esp32-cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
     String tail = "\r\n--RandomNerdTutorials--\r\n";
 
@@ -208,17 +226,16 @@ String sendPhoto()
     client.stop();
     Serial.println(getBody);
   }
-  else    // Si no logra hacer la conexión FTP
+  else // Si no logra hacer la conexión FTP
   {
     getBody = "Connection to " + serverName + " failed.";
     Serial.println(getBody);
   }
-  return getBody;
+  return getBody;   // Regresa el valor getBody
 }
 
 void configInitCamera()
 {
-  // COnfiguración necesaria para una buena foto
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
   config.pin_d0 = Y2_GPIO_NUM;
@@ -244,13 +261,13 @@ void configInitCamera()
   if (psramFound())
   {
     config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 10; // 0-63 menor numero = mayor calidad
+    config.jpeg_quality = 10; // 0-63 lower number means higher quality
     config.fb_count = 2;
   }
   else
   {
     config.frame_size = FRAMESIZE_CIF;
-    config.jpeg_quality = 12; // 0-63 menor numero = mayor calidad
+    config.jpeg_quality = 12; // 0-63 lower number means higher quality
     config.fb_count = 1;
   }
 
@@ -259,19 +276,55 @@ void configInitCamera()
   if (err != ESP_OK)
   {
     Serial.printf("Camera init failed with error 0x%x", err);
-    delay(1000);   
-    ESP.restart(); 
+    delay(1000);   // Checa esta línea
+    ESP.restart(); // Checa esta linea (no está en el otro código)
   }
 }
 
-void setupWiFi()
+void alertaMqtt()
 {
-  WiFi.mode(WIFI_STA);    // Modo de WiFI
+  String to_send = "Crushed!";    // Cadena a enviar
+  to_send.toCharArray(msg, 25); //  Se convierte a CharArray
+  Serial.print("Publicamos mensaje -> ");   
+  Serial.println(msg);
+  mqttclient.publish("vehicle_state", msg); // Se publica con orden: ("Topico", mensaje)
+}
+
+void reconnect()
+{
+
+  while (!mqttclient.connected())
+  {
+    Serial.print("Intentando conexión Mqtt...");
+    // Creamos un cliente ID
+    String clientId = "esp32_";
+    clientId += String(random(0xffff), HEX);    // Crea cliente con numeros random
+    // Intentamos conectar
+    if (mqttclient.connect(clientId.c_str(), mqtt_user, mqtt_pass))
+    {
+      Serial.println("Conectado!");
+      // mqttclient.subscribe("led1");   // Se suscribe al tópico
+    }
+    else
+    {
+      Serial.print("falló :( con error -> ");
+      Serial.print(mqttclient.state());
+      Serial.println(" Intentamos de nuevo en 5 segundos");
+
+      delay(5000);
+    }
+  }
+}
+
+void setup_wifi()
+{
+  delay(10);
+  WiFi.mode(WIFI_STA);    // Setea el modo de wifi
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
-  WiFi.begin(ssid, password);   // Establece conección a internet
-  while (WiFi.status() != WL_CONNECTED)   // Mientras se conecta
+  WiFi.begin(ssid, password);   // Inicia wifi
+  while (WiFi.status() != WL_CONNECTED)   // Espera a que conecte
   {
     Serial.print(".");
     delay(500);
