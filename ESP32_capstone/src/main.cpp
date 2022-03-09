@@ -4,6 +4,21 @@
   pudimos llevar acabo este proyecto
 
 */
+/*  Envío de evidencia fotográfica tras una señal de impacto por medio de IoT
+ *  Por: Israel Santiafo / Enrique Vivanco
+ *  Fecha: 8 de marzo de 2022
+ *  
+ *  Este programa lee la señal de entrada de un sensor on/off que al activarse 
+ *  envía un mensaje vía MQTT hacia un broker localizado en un servidor remoto. 
+ *  También envía n fotografias, las cuales se guardan en el mismo servidor 
+ *  para posteriormente exhibirlas en una página web 
+ *  
+ *  Configuración del hardware;
+ *  Sensor on/off        GPIO16
+ *  Vcc   --------------  5V
+ *  GND    -------------- GND
+ *  
+ */
 
 #include <Arduino.h>
 #include <WiFi.h>
