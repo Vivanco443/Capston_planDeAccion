@@ -1,18 +1,18 @@
-/*  
+/*
  *  Envío de evidencia fotográfica tras una señal de impacto por medio de IoT
  *  Por: Israel Santiafo / Enrique Vivanco
  *  Fecha: 8 de marzo de 2022
- *  
- *  Este programa lee la señal de entrada de un sensor on/off que al activarse 
- *  envía un mensaje vía MQTT hacia un broker localizado en un servidor remoto. 
- *  También envía n fotografias, las cuales se guardan en el mismo servidor 
- *  para posteriormente exhibirlas en una página web 
- *  
+ *
+ *  Este programa lee la señal de entrada de un sensor on/off que al activarse
+ *  envía un mensaje vía MQTT hacia un broker localizado en un servidor remoto.
+ *  También envía n fotografias, las cuales se guardan en el mismo servidor
+ *  para posteriormente exhibirlas en una página web
+ *
  *  Configuración del hardware;
  *  Sensor on/off        GPIO16
  *  Vcc   --------------  5V
  *  GND    -------------- GND
- *  
+ *
  *  Especia agradecimiento a Rui Santos de Random Nerd Tutorials que con su proyecto
  *  "ESP32-CAM Post Images to Local or Cloud Server using PHP (Photo Manager)"
  *  pudimos llevar acabo este proyecto
@@ -25,28 +25,25 @@
 #include "esp_camera.h"
 #include <PubSubClient.h>
 // Credenciales ssid (WiFi)
-const char *ssid = "Cuca's_chan";   // Cuca's_chan
-const char *password = "Naylita2021";   //  Naylita2021
+const char *ssid = "G307";     // Cuca's_chan ; G307 ; Totalplay-73A0-_2.4Gnormal ; IZZI-A42E ; 
+const char *password = "G307PASS"; //  Naylita2021 ; G307PASS ; D43FCB10A42E ; C3rradur45_C4D1
 
 String serverName = "148.206.74.17"; // REEMPLAZAR CON EL IP DEL SERVIDOR // 148.206.74.17
 // String serverName = "example.com";   // O REMPLAZALO CON EL NOMBRE DE TU DOMINIO
 
-String serverPath = "/webapp/upload.php";  // EL DIRECTORIO POR DEFECTO DEBERIA SER upload.php
+String serverPath = "/webapp/upload.php"; // EL DIRECTORIO POR DEFECTO DEBERIA SER upload.php
 
 const int serverPort = 80; // El puerto a conectarse
 
 //  Variables MQTT
-const char *mqtt_server = "realdtc.ga";  //  148.206.74.17
-const int mqtt_port = 1883;        // ???
-const char *mqtt_user = "web_client"; // Credenciales MQTT
+const char *mqtt_server = "realdtc.ga"; //  148.206.74.17
+const int mqtt_port = 1883;             // ???
+const char *mqtt_user = "web_client";   // Credenciales MQTT
 const char *mqtt_pass = "121212";
 char msg[25]; // Este char se usa para enviar el mensaje
 
-const int sensorPin = 16; // button pin
-int sensorState = HIGH;
-int lastSensorState = LOW;          // the previous reading from the input pin
-unsigned long lastDebounceTime = 0; // the last time the output pin was toggled
-unsigned long debounceDelay = 50;   // the debounce time; increase if the output flickers
+const int readPin = 16; // frontSignal_pin
+bool reading = LOW;
 
 WiFiClient client;
 PubSubClient mqttclient(client);
@@ -87,53 +84,42 @@ void setup_wifi();
 
 void setup()
 {
-  pinMode(sensorPin, INPUT); // seteamos modo de lectura al pin
+  pinMode(readPin, INPUT); // seteamos modo de lectura al pin
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   Serial.begin(115200);
 
-  setup_wifi(); //  Iniciamos conexión wifi
-  mqttclient.setServer(mqtt_server, mqtt_port);   // Establece servidor MQTT
-  configInitCamera(); // Se inicia la cámara
+  setup_wifi();                                 //  Iniciamos conexión wifi
+  mqttclient.setServer(mqtt_server, mqtt_port); // Establece servidor MQTT
+  Serial.println("MQTT settings setted");
+  configInitCamera();                           // Se inicia la cámara
+  Serial.println("Camara settings setted");
 }
 
 void loop()
 {
-  if (!mqttclient.connected())   //  Checa conexion mqtt
+  if (!mqttclient.connected()) //  Checa conexion mqtt
   {
-    reconnect();    // Llama función 
+    Serial.println("Conecting MQTT");
+    reconnect(); // Llama función
   }
-  int reading = digitalRead(sensorPin); // Lee el sensor
-  // Este if evita la activación por ruido
-  if (reading != lastSensorState)   // Si se activó el sensor
-  {
-    // reinicia tiempo de debounce
-    lastDebounceTime = millis();
-  }
+  reading = digitalRead(readPin); // Lee el sensor frontal
 
-  if ((millis() - lastDebounceTime) > debounceDelay)
+  if (reading) // Si está activo cualquier sensor
   {
-    if (reading != sensorState) // si el sensor ha cambiado
+    unsigned long currentMillis = millis();
+    if (currentMillis - previousMillis >= timerInterval)
     {
-      sensorState = reading;
-      if (sensorState == LOW)   // Si está activado
+      Serial.println("¡¡Crushed!!");
+      for (int i = 0; i < picknum; i++) // Para enviar "picknum" fotos
       {
-        unsigned long currentMillis = millis();
-        if (currentMillis - previousMillis >= timerInterval)
-        {
-          Serial.println("¡¡Crushed!!");
-          for (int i = 0; i < picknum; i++)   // Para enviar "picknum" fotos
-          {
-            if (i == 0)
-              alertaMqtt();   // Solo una vez envia la alerta
-            sendPhoto();    // Llama la función
-            delay(50);
-          }
-          previousMillis = currentMillis;     // Setea valor
-        }
+        if (i == 0)
+          alertaMqtt(); // Solo una vez envia la alerta
+        sendPhoto();    // Llama la función
+        delay(50);
       }
+      previousMillis = currentMillis; // Setea valor
     }
   }
-  lastSensorState = reading;  // Setea valor
 }
 
 String sendPhoto()
@@ -142,8 +128,8 @@ String sendPhoto()
   String getBody;
   // Las siguientes dos líneas toman la foto
   camera_fb_t *fb = NULL;
-  fb = esp_camera_fb_get();   
-  if (!fb)    // Si no se tomó
+  fb = esp_camera_fb_get();
+  if (!fb) // Si no se tomó
   {
     Serial.println("Camera capture failed");
     delay(1000);
@@ -152,9 +138,9 @@ String sendPhoto()
 
   Serial.println("Connecting to server: " + serverName);
 
-  if (client.connect(serverName.c_str(), serverPort))   // Se conecta 
+  if (client.connect(serverName.c_str(), serverPort)) // Se conecta
   {
-    Serial.println("Connection successful!"); // 
+    Serial.println("Connection successful!"); //
     String head = "--RandomNerdTutorials\r\nContent-Disposition: form-data; name=\"imageFile\"; filename=\"esp32-cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
     String tail = "\r\n--RandomNerdTutorials--\r\n";
 
@@ -231,7 +217,7 @@ String sendPhoto()
     getBody = "Connection to " + serverName + " failed.";
     Serial.println(getBody);
   }
-  return getBody;   // Regresa el valor getBody
+  return getBody; // Regresa el valor getBody
 }
 
 void configInitCamera()
@@ -283,9 +269,9 @@ void configInitCamera()
 
 void alertaMqtt()
 {
-  String to_send = "Crushed!";    // Cadena a enviar
+  String to_send = "Crushed front!";  // Cadena a enviar   $$$ - Cambiar para cada ESP32 - $$$
   to_send.toCharArray(msg, 25); //  Se convierte a CharArray
-  Serial.print("Publicamos mensaje -> ");   
+  Serial.print("Publicamos mensaje -> ");
   Serial.println(msg);
   mqttclient.publish("vehicle_state", msg); // Se publica con orden: ("Topico", mensaje)
 }
@@ -298,7 +284,7 @@ void reconnect()
     Serial.print("Intentando conexión Mqtt...");
     // Creamos un cliente ID
     String clientId = "esp32_";
-    clientId += String(random(0xffff), HEX);    // Crea cliente con numeros random
+    clientId += String(random(0xffff), HEX); // Crea cliente con numeros random
     // Intentamos conectar
     if (mqttclient.connect(clientId.c_str(), mqtt_user, mqtt_pass))
     {
@@ -319,17 +305,18 @@ void reconnect()
 void setup_wifi()
 {
   delay(10);
-  WiFi.mode(WIFI_STA);    // Setea el modo de wifi
+  WiFi.mode(WIFI_STA); // Setea el modo de wifi
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
-  WiFi.begin(ssid, password);   // Inicia wifi
-  while (WiFi.status() != WL_CONNECTED)   // Espera a que conecte
+  WiFi.begin(ssid, password);           // Inicia wifi
+  while (WiFi.status() != WL_CONNECTED) // Espera a que conecte
   {
     Serial.print(".");
     delay(500);
   }
   Serial.println();
+  Serial.println("¡¡Conected!!");
   Serial.print("ESP32-CAM IP Address: ");
   Serial.println(WiFi.localIP());
 }
