@@ -5,10 +5,15 @@ A0  -   Señal sensor
 */
 
 #include <Arduino.h>
-#define sensor 0   //  A0 pin
+#define fron_sens 0   //  A0 pin
+#define back_sens 1   //  A1 pin
 #define signalpin 2    //  Digital output
 #define ledpin 13
-int senVal = 0;
+#define highsen 7    //  Digital output
+#define lowsen 6
+
+int fronSenVal = 0;
+int backSenVal = 0;
 
 void setup()
 {
@@ -17,23 +22,28 @@ void setup()
   //  Declara puertos de salida
   pinMode(signalpin, OUTPUT);
   pinMode(ledpin, OUTPUT);
-  digitalWrite(signalpin, LOW);
+  pinMode(highsen, OUTPUT);
+  pinMode(lowsen, OUTPUT);
+  digitalWrite(signalpin, HIGH);
   digitalWrite(ledpin, LOW);
+  digitalWrite(highsen, HIGH);
+  digitalWrite(lowsen, LOW);
 }
 
 void loop()
 {
   // Hace lectura analógica del sensor
-  senVal = analogRead(sensor);
+  fronSenVal = analogRead(fron_sens);
+  backSenVal = analogRead(back_sens);
 
   // Pregunta si han cruzado el umbral
-  if (senVal < 1000)
+  if (fronSenVal < 1000 || backSenVal < 1000)
   {
-    digitalWrite(signalpin, HIGH); 
+    digitalWrite(signalpin, LOW); 
     digitalWrite(ledpin, HIGH); 
     Serial.println("Activacion del sensor");
     delay(500);    // Envía una señal el tiempo suficiente para  que la detecte
-    digitalWrite(signalpin, LOW);
+    digitalWrite(signalpin, HIGH);
     digitalWrite(ledpin, LOW);
     delay(500);
   }
